@@ -187,13 +187,25 @@
 let survey = null;
 
 window.onload = () => {
-  // URLパラメータ "d" から設定をデコードする
   const params = new URLSearchParams(window.location.search);
   const dataParam = params.get('d');
   
   if (dataParam) {
     try {
-      survey = JSON.parse(decodeURIComponent(escape(atob(dataParam))));
+      // 【修正】安全に置き換えた記号を元に戻し、日本語のバイト配列として復元します
+      const safeBase64 = dataParam
+        .replace(/-/g, '+')
+        .replace(/_/g, '/')
+        .replace(/\./g, '=');
+        
+      const binaryStr = atob(safeBase64);
+      const len = binaryStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      
+      survey = JSON.parse(new TextDecoder().decode(bytes));
     } catch (e) {
       console.error("アンケートデータの解析に失敗しました:", e);
     }
