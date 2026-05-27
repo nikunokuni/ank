@@ -508,7 +508,8 @@ function collectSetup() {
   return questions;
 }
 
-function saveAndGenerateURL() {
+// 【差し替え】saveAndGenerateURL 関数
+async function saveAndGenerateURL() {
   survey.title = document.getElementById('survey-title').value.trim() || '無題のアンケート';
   survey.desc = document.getElementById('survey-desc').value.trim();
   survey.gasUrl = document.getElementById('gas-url').value.trim();
@@ -521,24 +522,48 @@ function saveAndGenerateURL() {
   const baseWebUrl = document.getElementById('answer-html-base').value.trim() || 'answer.html';
   localStorage.setItem('answerHtmlBase', baseWebUrl);
 
-  // 【修正】日本語・マルチバイト文字対応のBase64（URLセーフ処理）
-  const jsonStr = JSON.stringify(survey);
-  const utf8Bytes = new TextEncoder().encode(jsonStr);
-  let binStr = "";
-  for (let i = 0; i < utf8Bytes.length; i++) {
-    binStr += String.fromCharCode(utf8Bytes[i]);
+  // 1. データの軽量化（キーの短縮・不要データの削減）
+  const compressedObj = {
+    t: survey.title,
+    d: survey.desc || undefined,
+    g: survey.gasUrl || undefined,
+    s: survey.sheetId || undefined,
+    n: survey.sheetName !== 'Sheet1' ? survey.sheetName : undefined, // デフォルト値なら省略
+    q: survey.questions.map(q => {
+      const minQ = { i: q.id, x: q.text, y: q.type };
+      if (q.options && q.options.length > 0) minQ.o = q.options;
+      if (q.required) minQ.r = 1; // true の場合は 1 を設定、それ以外は省略
+      return minQ;
+    })
+  };
+
+  try {
+    // 2. Deflate圧縮の実行
+    const jsonStr = JSON.stringify(compressedObj);
+    const utf8Bytes = new TextEncoder().encode(jsonStr);
+    
+    const stream = new Blob([utf8Bytes]).stream();
+    const compressedStream = stream.pipeThrough(new CompressionStream('deflate'));
+    const response = new Response(compressedStream);
+    const buffer = await response.arrayBuffer();
+    
+    // 3. Base64URLエンコード
+    const binStr = String.fromCharCode(...new Uint8Array(buffer));
+    const encodedData = btoa(binStr)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, ''); 
+
+    const finalUrl = baseWebUrl + "?d=" + encodedData;
+
+    document.getElementById('final-answer-url').value = finalUrl;
+    document.getElementById('generated-url-area').style.display = 'block';
+
+    showToast('設定を保存し、回答用URLを生成しました ✓', 'success');
+  } catch (err) {
+    console.error(err);
+    showToast('URL生成中にエラーが発生しました', 'error');
   }
-  const encodedData = btoa(binStr)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, ''); 
-
-  const finalUrl = baseWebUrl + "?d=" + encodedData;
-
-  document.getElementById('final-answer-url').value = finalUrl;
-  document.getElementById('generated-url-area').style.display = 'block';
-
-  showToast('設定を保存し、回答用URLを生成しました ✓', 'success');
 }
 
 function copyAnswerURL() {
