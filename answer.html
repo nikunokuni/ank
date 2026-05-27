@@ -186,20 +186,21 @@
 <script>
 let survey = null;
 
-window.onload = () => {
+window.onload = async () => {
   const params = new URLSearchParams(window.location.search);
   const dataParam = params.get('d');
   
   if (dataParam) {
     try {
-      // 【修正】安全に置き換えた記号を元に戻し、日本語のバイト配列として復元します
-      const safeBase64 = dataParam
+      // 1. Base64URLを標準的なBase64の表記に戻す
+      let safeBase64 = dataParam
         .replace(/-/g, '+')
         .replace(/_/g, '/');
-        while (safeBase64.length % 4) {
+      while (safeBase64.length % 4) {
         safeBase64 += '=';
       }
         
+      // 2. バイナリ文字列からバイト配列に復元
       const binaryStr = atob(safeBase64);
       const len = binaryStr.length;
       const bytes = new Uint8Array(len);
@@ -207,9 +208,33 @@ window.onload = () => {
         bytes[i] = binaryStr.charCodeAt(i);
       }
       
-      survey = JSON.parse(new TextDecoder().decode(bytes));
+      // 3. DecompressionStreamを使用してDeflate圧縮を展開
+      const stream = new Blob([bytes]).stream();
+      const decompressedStream = stream.pipeThrough(new DecompressionStream('deflate'));
+      const response = new Response(decompressedStream);
+      const arrayBuffer = await response.arrayBuffer();
+      const jsonStr = new TextDecoder().decode(arrayBuffer);
+      
+      const compressedObj = JSON.parse(jsonStr);
+      
+      // 4. 短縮キーから元のデータ構造へ展開マッピング
+      survey = {
+        title: compressedObj.t || '',
+        desc: compressedObj.d || '',
+        gasUrl: compressedObj.g || '',
+        sheetId: compressedObj.s || '',
+        sheetName: compressedObj.n || 'Sheet1',
+        questions: (compressedObj.q || []).map(q => ({
+          id: q.i,
+          text: q.x || '',
+          type: q.y || 'text',
+          options: q.o || [],
+          required: q.r === 1
+        }))
+      };
+      
     } catch (e) {
-      console.error("アンケートデータの解析に失敗しました:", e);
+      console.error("アンケートデータの解析または展開に失敗しました:", e);
     }
   }
 
